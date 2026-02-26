@@ -4,182 +4,70 @@ import { useEffect, useRef, useState } from "react";
 type AgentStatus = "working" | "idle" | "offline";
 type AgentName =
   | "fred" | "scout" | "dusty" | "hugh" | "teky"
-  | "buzz" | "mac" | "dale" | "rex" | "karen" | "cash";
+  | "buzz" | "mac"  | "dale"  | "rex"  | "karen" | "cash";
 
-interface AgentConfig {
-  name: string;
-  label: string;
+// ─── Floor dimensions ─────────────────────────────────────────────────────────
+const FLOOR_W = 1200;
+const FLOOR_H = 790;
+
+// ─── Zone rectangles (absolute on floor) ──────────────────────────────────────
+interface ZoneRect { x: number; y: number; w: number; h: number; }
+const ZONES: Record<string, ZoneRect> = {
+  conference: { x: 10,  y: 10,  w: 370, h: 205 },
+  freds:      { x: 390, y: 10,  w: 380, h: 205 },
+  breakroom:  { x: 780, y: 10,  w: 410, h: 205 },
+  scout:      { x: 10,  y: 225, w: 285, h: 170 },
+  dusty:      { x: 305, y: 225, w: 285, h: 170 },
+  hugh:       { x: 600, y: 225, w: 285, h: 170 },
+  teky:       { x: 895, y: 225, w: 295, h: 170 },
+  buzz:       { x: 10,  y: 405, w: 285, h: 170 },
+  mac:        { x: 305, y: 405, w: 285, h: 170 },
+  dale:       { x: 600, y: 405, w: 285, h: 170 },
+  rex:        { x: 895, y: 405, w: 295, h: 170 },
+  karen:      { x: 10,  y: 585, w: 285, h: 195 },
+  cash:       { x: 305, y: 585, w: 285, h: 195 },
+  hallway:    { x: 600, y: 585, w: 590, h: 195 },
+};
+
+// ─── Agent config — work position is the character's absolute floor position ──
+interface AgentCfg {
+  label:      string;
   shirtColor: string;
-  room: string;
-  deskEmoji: string;
-  roomEmoji: string;
+  workX:      number; // top-left X of character sprite when at desk
+  workY:      number; // top-left Y of character sprite when at desk
 }
 
-interface Pos { x: number; y: number; }
-
-// ─── Agent Configs ─────────────────────────────────────────────────────────────
-const AGENTS: Record<AgentName, AgentConfig> = {
-  fred:  { name: "fred",  label: "FRED",  shirtColor: "#2563eb", room: "Fred's Office",     deskEmoji: "🖥️",  roomEmoji: "⭐" },
-  scout: { name: "scout", label: "SCOUT", shirtColor: "#16a34a", room: "Scout",             deskEmoji: "🌍",  roomEmoji: "🗺️" },
-  dusty: { name: "dusty", label: "DUSTY", shirtColor: "#ea580c", room: "Dusty",             deskEmoji: "🧪",  roomEmoji: "⚗️" },
-  hugh:  { name: "hugh",  label: "HUGH",  shirtColor: "#6b7280", room: "Hugh",              deskEmoji: "🗄️",  roomEmoji: "📋" },
-  teky:  { name: "teky",  label: "TEKY",  shirtColor: "#9333ea", room: "Teky",              deskEmoji: "💻",  roomEmoji: "🖥️" },
-  buzz:  { name: "buzz",  label: "BUZZ",  shirtColor: "#ca8a04", room: "Buzz",              deskEmoji: "📣",  roomEmoji: "📊" },
-  mac:   { name: "mac",   label: "MAC",   shirtColor: "#92400e", room: "Mac",               deskEmoji: "🔧",  roomEmoji: "🛠️" },
-  dale:  { name: "dale",  label: "DALE",  shirtColor: "#65a30d", room: "Dale",              deskEmoji: "🌽",  roomEmoji: "🌾" },
-  rex:   { name: "rex",   label: "REX",   shirtColor: "#dc2626", room: "Rex",               deskEmoji: "🔐",  roomEmoji: "🖧" },
-  karen: { name: "karen", label: "KAREN", shirtColor: "#db2777", room: "Karen",             deskEmoji: "📊",  roomEmoji: "📑" },
-  cash:  { name: "cash",  label: "CASH",  shirtColor: "#b45309", room: "Cash",              deskEmoji: "📈",  roomEmoji: "🌾" },
+// workX = zoneX + (deskOffX + deskW/2) - charW/2
+// workY = zoneY + deskOffY + deskH + 4
+// standard desk: 120×18, deskOffX=82 → center@142; charW≈12 → workX = zoneX+136
+// wide desk (fred): 160×18, deskOffX=110 → center@190; workX = zoneX+184
+const AGENTS: Record<AgentName, AgentCfg> = {
+  fred:  { label: "FRED",  shirtColor: "#2563eb", workX: 574,  workY: 122 },
+  scout: { label: "SCOUT", shirtColor: "#16a34a", workX: 136,  workY: 337 },
+  dusty: { label: "DUSTY", shirtColor: "#ea580c", workX: 431,  workY: 337 },
+  hugh:  { label: "HUGH",  shirtColor: "#6b7280", workX: 726,  workY: 337 },
+  teky:  { label: "TEKY",  shirtColor: "#9333ea", workX: 1028, workY: 337 },
+  buzz:  { label: "BUZZ",  shirtColor: "#ca8a04", workX: 136,  workY: 517 },
+  mac:   { label: "MAC",   shirtColor: "#92400e", workX: 431,  workY: 517 },
+  dale:  { label: "DALE",  shirtColor: "#65a30d", workX: 726,  workY: 517 },
+  rex:   { label: "REX",   shirtColor: "#dc2626", workX: 1028, workY: 517 },
+  karen: { label: "KAREN", shirtColor: "#db2777", workX: 136,  workY: 717 },
+  cash:  { label: "CASH",  shirtColor: "#b45309", workX: 431,  workY: 717 },
 };
 
-// ─── Desk positions on 1200×780 floor ─────────────────────────────────────────
-const DESK_POS: Record<AgentName, Pos> = {
-  fred:  { x: 520, y: 80  },
-  scout: { x: 80,  y: 300 },
-  dusty: { x: 280, y: 300 },
-  hugh:  { x: 480, y: 300 },
-  teky:  { x: 680, y: 300 },
-  buzz:  { x: 80,  y: 480 },
-  mac:   { x: 280, y: 480 },
-  dale:  { x: 480, y: 480 },
-  rex:   { x: 680, y: 480 },
-  karen: { x: 80,  y: 640 },
-  cash:  { x: 280, y: 640 },
-};
-
-// ─── Zone layout on 1200×780 floor ────────────────────────────────────────────
-const ZONES = [
-  { label: "Conference",  emoji: "🏛️", x: 20,  y: 20,  w: 220, h: 180, border: "rgba(80,120,200,0.45)",  bg: "rgba(10,20,45,0.85)",  hasDesk: false },
-  { label: "Fred's Office", emoji: "⭐", x: 260, y: 20,  w: 220, h: 180, border: "rgba(37,99,235,0.6)",   bg: "rgba(10,20,55,0.9)",   hasDesk: true  },
-  { label: "Break Room",  emoji: "☕", x: 500, y: 20,  w: 180, h: 180, border: "rgba(80,120,200,0.4)",   bg: "rgba(10,20,45,0.9)",   hasDesk: false },
-  { label: "Scout",       emoji: "🗺️", x: 20,  y: 240, w: 160, h: 160, border: "rgba(80,120,200,0.35)",  bg: "rgba(15,25,50,0.85)",  hasDesk: true  },
-  { label: "Dusty",       emoji: "⚗️", x: 200, y: 240, w: 160, h: 160, border: "rgba(80,120,200,0.35)",  bg: "rgba(15,25,50,0.85)",  hasDesk: true  },
-  { label: "Hugh",        emoji: "📋", x: 380, y: 240, w: 160, h: 160, border: "rgba(80,120,200,0.35)",  bg: "rgba(15,25,50,0.85)",  hasDesk: true  },
-  { label: "Teky",        emoji: "🖥️", x: 560, y: 240, w: 160, h: 160, border: "rgba(80,120,200,0.35)",  bg: "rgba(15,25,50,0.85)",  hasDesk: true  },
-  { label: "Buzz",        emoji: "📊", x: 20,  y: 420, w: 160, h: 160, border: "rgba(80,120,200,0.35)",  bg: "rgba(15,25,50,0.85)",  hasDesk: true  },
-  { label: "Mac",         emoji: "🛠️", x: 200, y: 420, w: 160, h: 160, border: "rgba(120,80,20,0.5)",    bg: "rgba(20,12,5,0.9)",    hasDesk: true  },
-  { label: "Dale",        emoji: "🌾", x: 380, y: 420, w: 160, h: 160, border: "rgba(80,120,200,0.35)",  bg: "rgba(15,25,50,0.85)",  hasDesk: true  },
-  { label: "Rex",         emoji: "🖧",  x: 560, y: 420, w: 160, h: 160, border: "rgba(220,38,38,0.5)",    bg: "rgba(20,5,5,0.9)",     hasDesk: true  },
-  { label: "Karen",       emoji: "📑", x: 20,  y: 600, w: 160, h: 140, border: "rgba(80,120,200,0.35)",  bg: "rgba(15,25,50,0.85)",  hasDesk: true  },
-  { label: "Cash",        emoji: "🌾", x: 200, y: 600, w: 160, h: 140, border: "rgba(80,120,200,0.35)",  bg: "rgba(15,25,50,0.85)",  hasDesk: true  },
-];
-
-// ─── Mock Status (fallback) ────────────────────────────────────────────────────
+// ─── Mock / fetch status ───────────────────────────────────────────────────────
 const MOCK_STATUS: Record<AgentName, AgentStatus> = {
   fred: "working", scout: "working", dusty: "working", hugh: "idle",
   teky: "working", buzz: "idle",    mac: "idle",       dale: "idle",
-  rex: "working",  karen: "idle",   cash: "working",
+  rex:  "working", karen: "idle",   cash: "working",
 };
 
 async function fetchAgentStatus(): Promise<Record<AgentName, AgentStatus>> {
   try {
     const res = await fetch("/api/agent-status");
     if (res.ok) return res.json();
-  } catch (_) {/* fall through */}
+  } catch { /* fall through */ }
   return MOCK_STATUS;
-}
-
-// ─── Status dot ────────────────────────────────────────────────────────────────
-function StatusDot({ status }: { status: AgentStatus }) {
-  const color = status === "working" ? "#22c55e" : status === "idle" ? "#f97316" : "#ef4444";
-  return (
-    <div title={status} style={{
-      width: 10, height: 10, borderRadius: "50%",
-      backgroundColor: color, border: "1px solid rgba(255,255,255,0.4)",
-      boxShadow: `0 0 6px ${color}`, flexShrink: 0,
-    }} />
-  );
-}
-
-// ─── Pixel Character ──────────────────────────────────────────────────────────
-function PixelCharacter({ shirtColor, status, agentName, facingLeft }: {
-  shirtColor: string; status: AgentStatus; agentName: string; facingLeft?: boolean;
-}) {
-  const isWorking = status === "working";
-  const isIdle    = status === "idle";
-  const charClass = isWorking ? "char-bob" : isIdle ? "char-bounce" : "char-offline";
-  return (
-    <div
-      className={charClass}
-      title={agentName}
-      style={{
-        display: "flex", flexDirection: "column", alignItems: "center", gap: 0,
-        opacity: status === "offline" ? 0.35 : 1,
-        width: 16, flexShrink: 0,
-        transform: facingLeft ? "scaleX(-1)" : "scaleX(1)",
-      }}
-    >
-      {/* Head */}
-      <div style={{ width: 10, height: 10, backgroundColor: "#f5c5a3", border: "1px solid #c49a7a", position: "relative" }}>
-        <div style={{ position: "absolute", top: 3, left: 1, width: 2, height: 2, backgroundColor: "#222" }} />
-        <div style={{ position: "absolute", top: 3, right: 1, width: 2, height: 2, backgroundColor: "#222" }} />
-      </div>
-      {/* Shirt */}
-      <div style={{ width: 10, height: 8, backgroundColor: shirtColor, border: "1px solid rgba(0,0,0,0.3)" }} />
-      {/* Legs */}
-      <div style={{ display: "flex", gap: 1 }}>
-        <div className={isIdle ? "leg-left" : ""} style={{ width: 4, height: 5, backgroundColor: "#374151", border: "1px solid #111" }} />
-        <div className={isIdle ? "leg-right" : ""} style={{ width: 4, height: 5, backgroundColor: "#374151", border: "1px solid #111" }} />
-      </div>
-    </div>
-  );
-}
-
-// ─── Desk Component ────────────────────────────────────────────────────────────
-function Desk() {
-  return (
-    <div style={{ position: "absolute", bottom: 20, left: "50%", transform: "translateX(-50%)" }}>
-      {/* desk surface */}
-      <div style={{ width: 80, height: 12, background: "#8B6914", borderRadius: 2 }} />
-      {/* monitor */}
-      <div style={{ width: 28, height: 22, background: "#333", margin: "-22px auto 0", borderRadius: 2, border: "2px solid #555" }}>
-        <div style={{ width: 20, height: 14, background: "#1a9fff", margin: "4px auto", borderRadius: 1 }} />
-      </div>
-    </div>
-  );
-}
-
-// ─── Conference Table ──────────────────────────────────────────────────────────
-function ConferenceTable() {
-  return (
-    <div style={{ position: "absolute", bottom: 20, left: "50%", transform: "translateX(-50%)" }}>
-      <div style={{ width: 100, height: 44, background: "rgba(90,60,20,0.6)", border: "2px solid rgba(160,100,40,0.8)", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <span style={{ fontSize: 14 }}>📋</span>
-      </div>
-      <div style={{ fontSize: 8, color: "rgba(200,220,255,0.6)", fontFamily: "monospace", textAlign: "center", marginTop: 2 }}>Q1 Planning</div>
-    </div>
-  );
-}
-
-// ─── Break Room Furniture ──────────────────────────────────────────────────────
-function BreakRoomFurniture() {
-  return (
-    <div style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 10 }}>
-      <span style={{ fontSize: 20 }}>☕</span>
-      <span style={{ fontSize: 20 }}>📦</span>
-      <span style={{ fontSize: 20 }}>🫧</span>
-    </div>
-  );
-}
-
-// ─── Status Bar ───────────────────────────────────────────────────────────────
-function StatusBar({ statuses }: { statuses: Record<AgentName, AgentStatus> }) {
-  const entries = Object.entries(statuses) as [AgentName, AgentStatus][];
-  return (
-    <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "rgba(5,10,25,0.97)", borderTop: "1px solid rgba(80,120,200,0.4)", padding: "6px 16px", display: "flex", flexWrap: "wrap", gap: "10px 18px", zIndex: 100, alignItems: "center" }}>
-      {entries.map(([id, status]) => {
-        const cfg = AGENTS[id];
-        const color = status === "working" ? "#22c55e" : status === "idle" ? "#f97316" : "#ef4444";
-        return (
-          <div key={id} style={{ display: "flex", alignItems: "center", gap: 5 }}>
-            <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: color, boxShadow: `0 0 5px ${color}` }} />
-            <span style={{ fontSize: 9, color: "rgba(200,220,255,0.85)", fontFamily: "monospace", letterSpacing: "0.05em" }}>{cfg.label}</span>
-            <span style={{ fontSize: 9, color: "rgba(150,160,200,0.6)", fontFamily: "monospace" }}>{status.charAt(0).toUpperCase() + status.slice(1)}</span>
-          </div>
-        );
-      })}
-    </div>
-  );
 }
 
 // ─── CSS ───────────────────────────────────────────────────────────────────────
@@ -192,92 +80,237 @@ const OFFICE_CSS = `
     linear-gradient(90deg, rgba(40,80,160,0.07) 1px, transparent 1px);
   background-size: 24px 24px;
 }
-@keyframes bob { 0%,100% { transform:translateY(0px); } 50% { transform:translateY(-2px); } }
+@keyframes bob { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-2px)} }
 .char-bob { animation: bob 1.2s ease-in-out infinite; }
-@keyframes bounce { 0%,100% { transform:translateY(0px); } 50% { transform:translateY(-3px); } }
-.char-bounce { animation: bounce 0.8s steps(2) infinite; }
-@keyframes leg-l { 0%,100% { transform:rotate(0deg); } 50% { transform:rotate(20deg); } }
-@keyframes leg-r { 0%,100% { transform:rotate(0deg); } 50% { transform:rotate(-20deg); } }
+@keyframes leg-l { 0%,100%{transform:rotate(0deg)} 50%{transform:rotate(20deg)} }
+@keyframes leg-r { 0%,100%{transform:rotate(0deg)} 50%{transform:rotate(-20deg)} }
 .leg-left  { animation: leg-l 0.3s steps(2) infinite; transform-origin: top center; }
 .leg-right { animation: leg-r 0.3s steps(2) infinite; transform-origin: top center; }
-.char-offline { filter: grayscale(1); }
 `;
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
+// ─── Status dot ───────────────────────────────────────────────────────────────
+function StatusDot({ status }: { status: AgentStatus }) {
+  const c = status === "working" ? "#22c55e" : status === "idle" ? "#f97316" : "#ef4444";
+  return (
+    <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: c,
+      border: "1px solid rgba(255,255,255,0.4)", boxShadow: `0 0 5px ${c}` }} />
+  );
+}
+
+// ─── Pixel-art desk (rendered INSIDE a zone div, coords relative to zone) ─────
+function PixelDesk({ ox, oy, wide = false }: { ox: number; oy: number; wide?: boolean }) {
+  const dW = wide ? 160 : 120;
+  const dH = 18;
+  const mW = 38;
+  const mH = 26;
+  const mOx = ox + (dW - mW) / 2;
+  const mOy = oy - mH + 3;
+  return (
+    <>
+      {/* Monitor */}
+      <div style={{
+        position: "absolute", left: mOx, top: mOy, width: mW, height: mH,
+        background: "#4a4a4a", border: "2px solid #222",
+        borderRadius: "3px 3px 0 0", boxSizing: "border-box",
+      }}>
+        {/* Screen */}
+        <div style={{
+          position: "absolute", left: 3, top: 3, right: 3, bottom: 5,
+          background: "linear-gradient(160deg,#1e3a8a 50%,#3b82f6)",
+          boxShadow: "0 0 5px rgba(59,130,246,0.7)",
+        }}>
+          <div style={{ position: "absolute", top: 2, left: 2, right: 2, height: 1, background: "rgba(255,255,255,0.2)" }} />
+        </div>
+        {/* Stand */}
+        <div style={{ position: "absolute", bottom: -5, left: "50%", transform: "translateX(-50%)", width: 8, height: 5, background: "#333" }} />
+      </div>
+      {/* Desk surface */}
+      <div style={{
+        position: "absolute", left: ox, top: oy, width: dW, height: dH,
+        background: "linear-gradient(180deg,#9b6543,#6b3e26)",
+        border: "2px solid #a87050",
+        borderRadius: 2,
+        boxShadow: "0 3px 0 #3a1e0f",
+        boxSizing: "border-box",
+      }} />
+    </>
+  );
+}
+
+// ─── Pixel character (absolutely positioned on the floor canvas) ───────────────
+interface CharPos { x: number; y: number; facingLeft: boolean; }
+
+function PixelCharacter({ shirtColor, status, label, pos }: {
+  shirtColor: string;
+  status: AgentStatus;
+  label: string;
+  pos: CharPos;
+}) {
+  const isWorking = status === "working";
+  const isIdle    = status === "idle";
+  return (
+    <div style={{
+      position: "absolute",
+      left: pos.x,
+      top: pos.y,
+      transition: "left 2s ease, top 2s ease",
+      zIndex: 20,
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      pointerEvents: "none",
+    }}>
+      {/* Sprite — flips horizontally when moving left */}
+      <div
+        className={isWorking ? "char-bob" : ""}
+        style={{
+          display: "flex", flexDirection: "column", alignItems: "center",
+          opacity: status === "offline" ? 0.35 : 1,
+          transform: pos.facingLeft ? "scaleX(-1)" : undefined,
+        }}
+      >
+        {/* Head */}
+        <div style={{ width: 10, height: 10, backgroundColor: "#f5c5a3", border: "1px solid #c49a7a", position: "relative" }}>
+          <div style={{ position: "absolute", top: 3, left: 1,  width: 2, height: 2, backgroundColor: "#222" }} />
+          <div style={{ position: "absolute", top: 3, right: 1, width: 2, height: 2, backgroundColor: "#222" }} />
+        </div>
+        {/* Body */}
+        <div style={{ width: 12, height: 8, backgroundColor: shirtColor, border: "1px solid rgba(0,0,0,0.35)" }} />
+        {/* Legs */}
+        <div style={{ display: "flex", gap: 1 }}>
+          <div className={isIdle ? "leg-left"  : ""} style={{ width: 4, height: 5, backgroundColor: "#374151", border: "1px solid #111" }} />
+          <div className={isIdle ? "leg-right" : ""} style={{ width: 4, height: 5, backgroundColor: "#374151", border: "1px solid #111" }} />
+        </div>
+      </div>
+      {/* Name tag — always upright (outside the flipped div) */}
+      <div style={{
+        fontSize: 5,
+        color: "rgba(200,220,255,0.95)",
+        fontFamily: "'Press Start 2P', monospace",
+        whiteSpace: "nowrap",
+        marginTop: 2,
+        textShadow: "0 1px 3px #000, 0 0 8px rgba(0,0,0,0.9)",
+        transform: pos.facingLeft ? "scaleX(-1)" : undefined,
+      }}>
+        {label}
+      </div>
+    </div>
+  );
+}
+
+// ─── Status bar ───────────────────────────────────────────────────────────────
+function StatusBar({ statuses }: { statuses: Record<AgentName, AgentStatus> }) {
+  const entries = Object.entries(statuses) as [AgentName, AgentStatus][];
+  return (
+    <div style={{
+      position: "fixed", bottom: 0, left: 0, right: 0,
+      background: "rgba(5,10,25,0.97)", borderTop: "1px solid rgba(80,120,200,0.4)",
+      padding: "6px 16px", display: "flex", flexWrap: "wrap", gap: "10px 18px",
+      zIndex: 100, alignItems: "center",
+    }}>
+      {entries.map(([id, status]) => {
+        const cfg = AGENTS[id];
+        const c = status === "working" ? "#22c55e" : status === "idle" ? "#f97316" : "#ef4444";
+        return (
+          <div key={id} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: c, boxShadow: `0 0 5px ${c}` }} />
+            <span style={{ fontSize: 9, color: "rgba(200,220,255,0.85)", fontFamily: "monospace", letterSpacing: "0.05em" }}>{cfg.label}</span>
+            <span style={{ fontSize: 9, color: "rgba(150,160,200,0.6)", fontFamily: "monospace" }}>{status.charAt(0).toUpperCase()+status.slice(1)}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Helper: shared zone style ────────────────────────────────────────────────
+function zoneStyle(z: ZoneRect, extra: React.CSSProperties = {}): React.CSSProperties {
+  return {
+    position: "absolute", left: z.x, top: z.y, width: z.w, height: z.h,
+    background: "rgba(15,25,50,0.85)",
+    border: "1px solid rgba(80,120,200,0.35)",
+    borderRadius: 8, boxSizing: "border-box",
+    ...extra,
+  };
+}
+
+const labelBase: React.CSSProperties = {
+  position: "absolute", top: 8, left: 0, right: 0, textAlign: "center",
+  fontSize: 7, color: "rgba(180,210,255,0.7)",
+  fontFamily: "'Press Start 2P', monospace", letterSpacing: "0.04em",
+  pointerEvents: "none",
+};
+
+// ─── Main page ────────────────────────────────────────────────────────────────
 export default function OfficePage() {
   const [statuses, setStatuses] = useState<Record<AgentName, AgentStatus>>(MOCK_STATUS);
-  const [positions, setPositions] = useState<Record<AgentName, Pos>>(() => {
-    // initialise at desk positions
-    const init = {} as Record<AgentName, Pos>;
-    (Object.keys(DESK_POS) as AgentName[]).forEach((k) => { init[k] = { ...DESK_POS[k] }; });
-    return init;
-  });
-  const [facingLeft, setFacingLeft] = useState<Record<AgentName, boolean>>(() => {
-    const init = {} as Record<AgentName, boolean>;
-    (Object.keys(DESK_POS) as AgentName[]).forEach((k) => { init[k] = false; });
-    return init;
+
+  // Character positions on the floor (absolute x,y + facing direction)
+  const [positions, setPositions] = useState<Record<AgentName, CharPos>>(() => {
+    const p = {} as Record<AgentName, CharPos>;
+    for (const [k, cfg] of Object.entries(AGENTS)) {
+      p[k as AgentName] = { x: cfg.workX, y: cfg.workY, facingLeft: false };
+    }
+    return p;
   });
 
-  // fetch statuses
+  // Keep a ref so the movement interval always reads latest statuses
+  const statusRef = useRef(statuses);
+  useEffect(() => { statusRef.current = statuses; }, [statuses]);
+
+  // Fetch agent statuses
   useEffect(() => {
     fetchAgentStatus().then(setStatuses);
-    const interval = setInterval(() => fetchAgentStatus().then(setStatuses), 30_000);
-    return () => clearInterval(interval);
+    const id = setInterval(() => fetchAgentStatus().then(setStatuses), 30_000);
+    return () => clearInterval(id);
   }, []);
 
-  // inject CSS
+  // Inject CSS
   useEffect(() => {
-    const id = "office-styles";
-    if (!document.getElementById(id)) {
-      const style = document.createElement("style");
-      style.id = id;
-      style.textContent = OFFICE_CSS;
-      document.head.appendChild(style);
+    const eid = "office-styles";
+    if (!document.getElementById(eid)) {
+      const el = document.createElement("style");
+      el.id = eid; el.textContent = OFFICE_CSS;
+      document.head.appendChild(el);
     }
-    return () => { const el = document.getElementById(id); if (el) el.remove(); };
+    return () => { document.getElementById(eid)?.remove(); };
   }, []);
 
-  // wander logic — idle agents roam every 3500ms
-  const statusesRef = useRef(statuses);
-  statusesRef.current = statuses;
-
+  // Idle wandering — one interval, always uses latest statuses via ref
   useEffect(() => {
-    const AGENTS_LIST = Object.keys(DESK_POS) as AgentName[];
-    const timer = setInterval(() => {
-      const currentStatuses = statusesRef.current;
-      setPositions((prev) => {
+    const tick = () => {
+      const curr = statusRef.current;
+      setPositions(prev => {
         const next = { ...prev };
-        AGENTS_LIST.forEach((id) => {
-          if (currentStatuses[id] === "working") {
-            next[id] = { ...DESK_POS[id] };
-          } else {
+        for (const [name, status] of Object.entries(curr)) {
+          const id = name as AgentName;
+          const cfg = AGENTS[id];
+          if (status === "working") {
+            // Return to desk
             next[id] = {
-              x: Math.random() * 1100 + 40,
-              y: Math.random() * 680 + 40,
+              x: cfg.workX, y: cfg.workY,
+              facingLeft: prev[id].x > cfg.workX,
             };
+          } else if (status === "idle") {
+            // Wander to a random spot on the floor
+            const nx = 20  + Math.random() * (FLOOR_W - 60);
+            const ny = 30  + Math.random() * (FLOOR_H - 80);
+            next[id] = { x: nx, y: ny, facingLeft: nx < prev[id].x };
           }
-        });
+          // offline: don't move
+        }
         return next;
       });
-      setFacingLeft((prev) => {
-        const next = { ...prev };
-        AGENTS_LIST.forEach((id) => {
-          if (currentStatuses[id] !== "working") {
-            next[id] = Math.random() > 0.5;
-          } else {
-            next[id] = false;
-          }
-        });
-        return next;
-      });
-    }, 3500);
-    return () => clearInterval(timer);
-  }, []);
+    };
+    const id = setInterval(tick, 3500);
+    return () => clearInterval(id);
+  }, []); // runs once; reads statuses via ref
 
   return (
-    <div className="office-bg" style={{ minHeight: "100vh", padding: "16px 16px 60px", fontFamily: "monospace", userSelect: "none" }}>
-      {/* Header */}
-      <div style={{ marginBottom: 16, textAlign: "center" }}>
+    <div className="office-bg" style={{ minHeight: "100vh", padding: "16px 16px 64px", fontFamily: "monospace", userSelect: "none", overflowX: "auto" }}>
+
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <div style={{ marginBottom: 12, textAlign: "center" }}>
         <h1 style={{ fontSize: 12, fontFamily: "'Press Start 2P', monospace", color: "#7dd3fc", letterSpacing: "0.12em", textShadow: "0 0 10px rgba(125,211,252,0.6)", margin: 0 }}>
           🏢 B&amp;B Agrisales — AI Team HQ
         </h1>
@@ -286,91 +319,175 @@ export default function OfficePage() {
         </p>
       </div>
 
-      {/* ── Office Floor Canvas ── */}
-      <div style={{
-        position: "relative",
-        width: 1200,
-        height: 780,
-        margin: "0 auto",
-        background: "rgba(8,16,38,0.95)",
-        border: "2px solid rgba(80,120,200,0.4)",
-        borderRadius: 12,
-        overflow: "hidden",
-      }}>
-        {/* Floor grid */}
-        <div style={{
-          position: "absolute", inset: 0,
-          backgroundImage: "linear-gradient(rgba(40,80,160,0.06) 1px,transparent 1px),linear-gradient(90deg,rgba(40,80,160,0.06) 1px,transparent 1px)",
-          backgroundSize: "40px 40px",
-          pointerEvents: "none",
-        }} />
+      {/* ── Office Floor Canvas ────────────────────────────────────────────── */}
+      <div style={{ position: "relative", width: FLOOR_W, height: FLOOR_H, margin: "0 auto" }}>
 
-        {/* ── Zone Boxes ── */}
-        {ZONES.map((z) => (
-          <div
-            key={z.label}
-            style={{
-              position: "absolute",
-              left: z.x, top: z.y, width: z.w, height: z.h,
-              background: z.bg,
-              border: `1px solid ${z.border}`,
-              borderRadius: 8,
-              overflow: "visible",  // never clip characters
-            }}
-          >
-            {/* Zone label */}
-            <div style={{ padding: "6px 8px", fontSize: 8, color: "rgba(180,210,255,0.65)", fontFamily: "'Press Start 2P', monospace", lineHeight: 1.4 }}>
-              {z.emoji} {z.label}
-            </div>
+        {/* ──────────────────────────────────────────────────────────────────
+            ZONE LAYER — decorative only, NO characters inside
+        ────────────────────────────────────────────────────────────────── */}
 
-            {/* Furniture */}
-            {z.label === "Conference" && <ConferenceTable />}
-            {z.label === "Break Room" && <BreakRoomFurniture />}
-            {z.hasDesk && z.label !== "Conference" && z.label !== "Break Room" && <Desk />}
+        {/* Conference Room */}
+        <div style={zoneStyle(ZONES.conference)}>
+          <div style={labelBase}>🏛️ CONFERENCE ROOM</div>
+          {/* Oval table */}
+          <div style={{
+            position: "absolute", top: 65, left: "50%", transform: "translateX(-50%)",
+            width: 200, height: 85,
+            background: "rgba(90,60,20,0.65)", border: "2px solid rgba(160,100,40,0.8)",
+            borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <span style={{ fontSize: 14 }}>📋</span>
+          </div>
+          {/* Chairs around table */}
+          {[[-95,10],[100,10],[-95,65],[100,65],[-25,-20],[-25,95]].map(([cx,cy],i) => (
+            <div key={i} style={{
+              position: "absolute", left: "50%", top: 95,
+              marginLeft: cx - 7, marginTop: cy - 7,
+              width: 14, height: 14,
+              background: "rgba(60,40,20,0.8)", border: "1px solid rgba(120,80,30,0.7)",
+              borderRadius: 3,
+            }} />
+          ))}
+          <div style={{ position: "absolute", bottom: 8, left: 0, right: 0, textAlign: "center", fontSize: 6, color: "rgba(150,180,150,0.6)", fontFamily: "monospace" }}>
+            Q1 Planning — AgriChem v2
+          </div>
+        </div>
+
+        {/* Fred's Office */}
+        <div style={zoneStyle(ZONES.freds, { border: "1px solid rgba(37,99,235,0.6)", background: "rgba(10,20,55,0.9)" })}>
+          <div style={{ ...labelBase, color: "rgba(200,220,255,0.8)" }}>⭐ FRED'S OFFICE</div>
+          <PixelDesk ox={110} oy={90} wide />
+          <span style={{ position: "absolute", bottom: 12, right: 18, fontSize: 22, opacity: 0.7 }}>🌿</span>
+          <div style={{ position: "absolute", top: 8, right: 8 }}><StatusDot status={statuses.fred} /></div>
+        </div>
+
+        {/* Break Room */}
+        <div style={zoneStyle(ZONES.breakroom)}>
+          <div style={labelBase}>☕ BREAK ROOM</div>
+          <div style={{ position: "absolute", top: 50, left: 30, display: "flex", gap: 10, alignItems: "flex-end" }}>
+            <span style={{ fontSize: 28 }}>☕</span>
+            <span style={{ fontSize: 22 }}>📦</span>
+            <span style={{ fontSize: 22 }}>🫧</span>
+            <span style={{ fontSize: 18 }}>🍪</span>
+          </div>
+          {/* Counter */}
+          <div style={{
+            position: "absolute", bottom: 28, left: 20, right: 20, height: 22,
+            background: "linear-gradient(180deg,#9b6543,#6b3e26)",
+            border: "2px solid #a87050", borderRadius: 3, boxShadow: "0 3px 0 #3a1e0f",
+          }} />
+          <div style={{ position: "absolute", bottom: 10, left: 0, right: 0, textAlign: "center", fontSize: 6, color: "rgba(150,200,150,0.7)", fontFamily: "monospace" }}>
+            💧 Water Cooler
+          </div>
+        </div>
+
+        {/* ── Row 2: Scout, Dusty, Hugh, Teky ───────────────────────────── */}
+        {(["scout","dusty","hugh"] as const).map(id => (
+          <div key={id} style={zoneStyle(ZONES[id])}>
+            <div style={labelBase}>{AGENTS[id].label}</div>
+            <PixelDesk ox={82} oy={95} />
+            <div style={{ position: "absolute", top: 8, right: 8 }}><StatusDot status={statuses[id]} /></div>
+          </div>
+        ))}
+        <div style={zoneStyle(ZONES.teky, { border: "1px solid rgba(147,51,234,0.5)", background: "rgba(15,5,30,0.85)" })}>
+          <div style={{ ...labelBase, color: "rgba(196,181,253,0.8)" }}>💻 TEKY</div>
+          <PixelDesk ox={87} oy={95} />
+          <div style={{ position: "absolute", top: 8, right: 8 }}><StatusDot status={statuses.teky} /></div>
+        </div>
+
+        {/* ── Row 3: Buzz, Mac, Dale, Rex ───────────────────────────────── */}
+        {(["buzz","dale"] as const).map(id => (
+          <div key={id} style={zoneStyle(ZONES[id])}>
+            <div style={labelBase}>{AGENTS[id].label}</div>
+            <PixelDesk ox={82} oy={95} />
+            <div style={{ position: "absolute", top: 8, right: 8 }}><StatusDot status={statuses[id]} /></div>
           </div>
         ))}
 
-        {/* ── Agent Characters — all on the floor, not inside zones ── */}
-        {(Object.keys(DESK_POS) as AgentName[]).map((id) => {
-          const cfg = AGENTS[id];
-          const status = statuses[id] ?? "offline";
-          const pos = positions[id] ?? DESK_POS[id];
-          return (
-            <div
-              key={id}
-              style={{
-                position: "absolute",
-                left: pos.x,
-                top: pos.y,
-                transition: "left 2.5s ease-in-out, top 2.5s ease-in-out",
-                zIndex: 20,
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                gap: 2,
-                transform: "translate(-50%, -50%)",
-              }}
-            >
-              <PixelCharacter
-                shirtColor={cfg.shirtColor}
-                status={status}
-                agentName={id}
-                facingLeft={facingLeft[id]}
-              />
-              <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                <StatusDot status={status} />
-                <span style={{ fontSize: 6, color: "rgba(200,220,255,0.8)", fontFamily: "monospace", whiteSpace: "nowrap" }}>
-                  {cfg.label}
-                </span>
-              </div>
-            </div>
-          );
-        })}
+        {/* Mac / Garage */}
+        <div style={zoneStyle(ZONES.mac, { border: "1px solid rgba(120,80,20,0.5)", background: "rgba(20,12,5,0.85)" })}>
+          <div style={{ ...labelBase, color: "rgba(251,191,36,0.7)" }}>🔧 MAC / GARAGE</div>
+          {/* Workbench (no monitor — it's a garage) */}
+          <div style={{ position: "absolute", left: 40, top: 55, display: "flex", gap: 6 }}>
+            <span style={{ fontSize: 16 }}>🔧</span>
+            <span style={{ fontSize: 16 }}>🔩</span>
+            <span style={{ fontSize: 16 }}>⚙️</span>
+          </div>
+          <div style={{
+            position: "absolute", left: 30, top: 95, width: 220, height: 22,
+            background: "linear-gradient(180deg,#78350f,#451a03)",
+            border: "2px solid #92400e", borderRadius: 2, boxShadow: "0 3px 0 #1c0a00", boxSizing: "border-box",
+          }} />
+          <div style={{ position: "absolute", top: 8, right: 8 }}><StatusDot status={statuses.mac} /></div>
+        </div>
 
-        {/* Corner decorations */}
-        <div style={{ position: "absolute", bottom: 8, right: 8, fontSize: 20, opacity: 0.4, pointerEvents: "none" }}>🌱</div>
-        <div style={{ position: "absolute", bottom: 8, left: 8, fontSize: 20, opacity: 0.4, pointerEvents: "none" }}>🌱</div>
+        {/* Rex / Servers */}
+        <div style={zoneStyle(ZONES.rex, { border: "1px solid rgba(220,38,38,0.5)", background: "rgba(20,5,5,0.85)" })}>
+          <div style={{ ...labelBase, color: "rgba(252,165,165,0.75)" }}>🔐 REX / SERVERS</div>
+          {/* Server rack pair */}
+          {[0,1].map(i => (
+            <div key={i} style={{
+              position: "absolute", left: 50 + i * 70, top: 36,
+              width: 55, height: 115,
+              background: "rgba(25,8,8,0.95)", border: "1px solid rgba(180,30,30,0.45)",
+              borderRadius: 3, padding: 4, boxSizing: "border-box",
+            }}>
+              {[0,1,2,3,4].map(j => (
+                <div key={j} style={{
+                  height: 14, marginBottom: 2,
+                  background: "rgba(40,12,12,0.9)", border: "1px solid rgba(100,20,20,0.5)",
+                  borderRadius: 1, display: "flex", alignItems: "center", padding: "0 3px", gap: 3,
+                }}>
+                  <div style={{ width: 4, height: 4, borderRadius: "50%", background: (i+j)%3===1?"#f97316":"#22c55e", boxShadow: `0 0 3px ${(i+j)%3===1?"#f97316":"#22c55e"}` }} />
+                  <div style={{ flex: 1, height: 2, background: "rgba(80,80,80,0.5)", borderRadius: 1 }} />
+                </div>
+              ))}
+            </div>
+          ))}
+          <div style={{ position: "absolute", top: 8, right: 8 }}><StatusDot status={statuses.rex} /></div>
+        </div>
+
+        {/* ── Bottom row: Karen, Cash, Hallway ──────────────────────────── */}
+        {(["karen","cash"] as const).map(id => (
+          <div key={id} style={zoneStyle(ZONES[id])}>
+            <div style={labelBase}>{AGENTS[id].label}</div>
+            <PixelDesk ox={82} oy={110} />
+            <div style={{ position: "absolute", top: 8, right: 8 }}><StatusDot status={statuses[id]} /></div>
+          </div>
+        ))}
+
+        {/* Hallway / Common Area */}
+        <div style={{
+          ...zoneStyle(ZONES.hallway),
+          background: "rgba(8,18,40,0.65)",
+          border: "1px dashed rgba(60,90,160,0.3)",
+        }}>
+          <div style={labelBase}>🚶 HALLWAY / COMMON AREA</div>
+          <div style={{ position: "absolute", bottom: 18, left: 20, display: "flex", gap: 18, alignItems: "center" }}>
+            <span style={{ fontSize: 22 }}>🪴</span>
+            <span style={{ fontSize: 18 }}>📌</span>
+            <span style={{ fontSize: 22 }}>🗃️</span>
+            <span style={{ fontSize: 8, color: "rgba(150,180,255,0.4)", fontFamily: "monospace" }}>Staff notices &amp; bulletin board</span>
+          </div>
+        </div>
+
+        {/* ──────────────────────────────────────────────────────────────────
+            CHARACTER LAYER — floats above ALL zones, free to walk anywhere
+        ────────────────────────────────────────────────────────────────── */}
+        {(Object.keys(AGENTS) as AgentName[]).map(id => (
+          <PixelCharacter
+            key={id}
+            shirtColor={AGENTS[id].shirtColor}
+            status={statuses[id]}
+            label={AGENTS[id].label}
+            pos={positions[id]}
+          />
+        ))}
       </div>
+
+      {/* Corner plants */}
+      <div style={{ position: "fixed", bottom: 52, left: 8, fontSize: 24, opacity: 0.4, pointerEvents: "none" }}>🌱</div>
+      <div style={{ position: "fixed", bottom: 52, right: 8, fontSize: 24, opacity: 0.4, pointerEvents: "none" }}>🌱</div>
 
       <StatusBar statuses={statuses} />
     </div>
