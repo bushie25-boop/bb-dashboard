@@ -137,14 +137,21 @@ function PixelDesk({ ox, oy, wide = false }: { ox: number; oy: number; wide?: bo
   );
 }
 
+// ─── Per-agent movement speeds (CSS transition duration in seconds) ───────────
+const agentSpeeds: Record<string, number> = {
+  fred: 3.2, scout: 2.1, dusty: 2.8, hugh: 3.5, teky: 1.8,
+  buzz: 2.3, mac: 3.0,   dale: 3.8,  rex:  2.5, karen: 3.2, cash: 2.6,
+};
+
 // ─── Pixel character (absolutely positioned on the floor canvas) ───────────────
 interface CharPos { x: number; y: number; facingLeft: boolean; }
 
-function PixelCharacter({ shirtColor, status, label, pos }: {
+function PixelCharacter({ shirtColor, status, label, pos, speed }: {
   shirtColor: string;
   status: AgentStatus;
   label: string;
   pos: CharPos;
+  speed: number;
 }) {
   const isWorking = status === "working";
   const isIdle    = status === "idle";
@@ -153,7 +160,7 @@ function PixelCharacter({ shirtColor, status, label, pos }: {
       position: "absolute",
       left: pos.x,
       top: pos.y,
-      transition: "left 2s ease, top 2s ease",
+      transition: `left ${speed}s ease, top ${speed}s ease`,
       zIndex: 20,
       display: "flex",
       flexDirection: "column",
@@ -276,34 +283,51 @@ export default function OfficePage() {
     return () => { document.getElementById(eid)?.remove(); };
   }, []);
 
-  // Idle wandering — one interval, always uses latest statuses via ref
+  // Idle wandering — independent setTimeout loop per agent, staggered startup
   useEffect(() => {
-    const tick = () => {
-      const curr = statusRef.current;
-      setPositions(prev => {
-        const next = { ...prev };
-        for (const [name, status] of Object.entries(curr)) {
-          const id = name as AgentName;
-          const cfg = AGENTS[id];
-          if (status === "working") {
-            // Return to desk
-            next[id] = {
-              x: cfg.workX, y: cfg.workY,
-              facingLeft: prev[id].x > cfg.workX,
-            };
-          } else if (status === "idle") {
-            // Wander to a random spot on the floor
-            const nx = 20  + Math.random() * (FLOOR_W - 60);
-            const ny = 30  + Math.random() * (FLOOR_H - 80);
-            next[id] = { x: nx, y: ny, facingLeft: nx < prev[id].x };
+    const timeouts: Record<string, ReturnType<typeof setTimeout>> = {};
+
+    const scheduleNextMove = (agentId: AgentName) => {
+      // Random wait between 2.5s and 7s before next move
+      const delay = 2500 + Math.random() * 4500;
+      timeouts[agentId] = setTimeout(() => {
+        const currentStatus = statusRef.current[agentId];
+        if (currentStatus === "idle") {
+          // 20% chance to stay put (natural pause — looking around, thinking)
+          if (Math.random() > 0.2) {
+            const nx = 40 + Math.random() * (FLOOR_W - 100);
+            const ny = 40 + Math.random() * (FLOOR_H - 100);
+            setPositions(prev => ({
+              ...prev,
+              [agentId]: { x: nx, y: ny, facingLeft: nx < prev[agentId].x },
+            }));
           }
-          // offline: don't move
+          // else: stay put, just reschedule
+        } else if (currentStatus === "working") {
+          // Ensure they're back at their desk
+          const cfg = AGENTS[agentId];
+          setPositions(prev => ({
+            ...prev,
+            [agentId]: {
+              x: cfg.workX, y: cfg.workY,
+              facingLeft: prev[agentId].x > cfg.workX,
+            },
+          }));
         }
-        return next;
-      });
+        // offline: don't move
+        scheduleNextMove(agentId); // schedule next iteration
+      }, delay);
     };
-    const id = setInterval(tick, 3500);
-    return () => clearInterval(id);
+
+    // Stagger startup: each agent waits a random 0–2000ms before first wander
+    for (const name of Object.keys(AGENTS) as AgentName[]) {
+      const initialDelay = Math.random() * 2000;
+      timeouts[name] = setTimeout(() => scheduleNextMove(name), initialDelay);
+    }
+
+    return () => {
+      for (const t of Object.values(timeouts)) clearTimeout(t);
+    };
   }, []); // runs once; reads statuses via ref
 
   return (
@@ -481,6 +505,7 @@ export default function OfficePage() {
             status={statuses[id]}
             label={AGENTS[id].label}
             pos={positions[id]}
+            speed={agentSpeeds[id] ?? 2.5}
           />
         ))}
       </div>
