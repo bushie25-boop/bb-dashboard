@@ -139,8 +139,8 @@ function PixelDesk({ ox, oy, wide = false }: { ox: number; oy: number; wide?: bo
 
 // ─── Per-agent movement speeds (CSS transition duration in seconds) ───────────
 const agentSpeeds: Record<string, number> = {
-  fred: 5.8, scout: 3.8, dusty: 5.0, hugh: 6.3, teky: 3.2,
-  buzz: 4.1, mac: 5.4,   dale: 6.8,  rex:  4.5, karen: 5.8, cash: 4.7,
+  fred: 11.6, scout: 7.6, dusty: 10.0, hugh: 12.6, teky: 6.4,
+  buzz: 8.2,  mac: 10.8,  dale: 13.6,  rex:  9.0,  karen: 11.6, cash: 9.4,
 };
 
 // ─── Pixel character (absolutely positioned on the floor canvas) ───────────────
@@ -288,8 +288,8 @@ export default function OfficePage() {
     const timeouts: Record<string, ReturnType<typeof setTimeout>> = {};
 
     const scheduleNextMove = (agentId: AgentName) => {
-      // Random wait between 5s and 13s before next move
-      const delay = 5000 + Math.random() * 8000;
+      // Random wait between 12s and 30s before next move
+      const delay = 12000 + Math.random() * 18000;
       timeouts[agentId] = setTimeout(() => {
         const currentStatus = statusRef.current[agentId];
         if (currentStatus === "idle") {
