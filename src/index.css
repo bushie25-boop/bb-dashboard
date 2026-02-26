@@ -10,3 +10,50 @@ body {
   background: #060d1f;
   color: #e2e8f0;
 }
+
+/* ── Markdown content styles ────────────────────────────────────────────────── */
+.md-content h1 { font-size: 1.3em; color: #93c5fd; margin: 0.8em 0 0.4em; font-weight: 700; }
+.md-content h2 { font-size: 1.1em; color: #7dd3fc; margin: 0.7em 0 0.3em; font-weight: 700; }
+.md-content h3 { font-size: 1.0em; color: #bae6fd; margin: 0.6em 0 0.3em; font-weight: 600; }
+.md-content p  { margin: 0.4em 0; line-height: 1.7; }
+.md-content ul, .md-content ol { padding-left: 1.4em; margin: 0.3em 0; }
+.md-content li { margin: 0.2em 0; line-height: 1.6; }
+.md-content code {
+  background: rgba(30,50,90,0.7);
+  border: 1px solid rgba(80,120,200,0.3);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 0.88em;
+  font-family: monospace;
+  color: #a5f3fc;
+}
+.md-content pre {
+  background: rgba(5,12,30,0.8);
+  border: 1px solid rgba(80,120,200,0.25);
+  border-radius: 6px;
+  padding: 10px 14px;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+.md-content pre code { background: none; border: none; padding: 0; }
+.md-content blockquote {
+  border-left: 3px solid rgba(99,140,250,0.5);
+  margin: 0.5em 0;
+  padding-left: 12px;
+  color: rgba(180,200,240,0.65);
+  font-style: italic;
+}
+.md-content hr {
+  border: none;
+  border-top: 1px solid rgba(80,120,200,0.2);
+  margin: 1em 0;
+}
+.md-content a { color: #60a5fa; text-decoration: underline; }
+.md-content strong { color: #c4d4f0; font-weight: 700; }
+.md-content em { color: rgba(180,200,240,0.8); }
+
+/* ── Print styles for Audit PDF ──────────────────────────────────────────────── */
+@media print {
+  nav, button { display: none !important; }
+  body { background: white !important; color: black !important; }
+}

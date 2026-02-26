@@ -107,6 +107,222 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true, ts: Date.now() });
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// KANBAN
+// ═══════════════════════════════════════════════════════════════════════════════
+const WORKSPACE    = path.join(HOME, ".openclaw", "workspace");
+const KANBAN_FILE  = path.join(WORKSPACE, "kanban.json");
+
+interface KanbanTask {
+  id:          string;
+  title:       string;
+  description: string;
+  assignee:    string;
+  priority:    "low" | "med" | "high" | "urgent";
+  column:      "Backlog" | "In Progress" | "Review" | "Done";
+  createdAt:   string;
+  updatedAt:   string;
+}
+
+function readKanban(): { tasks: KanbanTask[] } {
+  try {
+    if (!fs.existsSync(KANBAN_FILE)) {
+      const empty = { tasks: [] };
+      fs.writeFileSync(KANBAN_FILE, JSON.stringify(empty, null, 2));
+      return empty;
+    }
+    return JSON.parse(fs.readFileSync(KANBAN_FILE, "utf8"));
+  } catch {
+    return { tasks: [] };
+  }
+}
+
+function writeKanban(data: { tasks: KanbanTask[] }) {
+  fs.writeFileSync(KANBAN_FILE, JSON.stringify(data, null, 2));
+}
+
+function genId(): string {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+app.get("/api/kanban", (_req, res) => {
+  res.json(readKanban());
+});
+
+app.post("/api/kanban", (req, res) => {
+  const data = readKanban();
+  const now  = new Date().toISOString();
+  const task: KanbanTask = {
+    id:          genId(),
+    title:       req.body.title       ?? "Untitled",
+    description: req.body.description ?? "",
+    assignee:    req.body.assignee    ?? "lee",
+    priority:    req.body.priority    ?? "low",
+    column:      req.body.column      ?? "Backlog",
+    createdAt:   now,
+    updatedAt:   now,
+  };
+  data.tasks.push(task);
+  writeKanban(data);
+  res.status(201).json(task);
+});
+
+app.patch("/api/kanban/:id", (req, res) => {
+  const data  = readKanban();
+  const idx   = data.tasks.findIndex(t => t.id === req.params.id);
+  if (idx === -1) { res.status(404).json({ error: "Not found" }); return; }
+  const updated = { ...data.tasks[idx], ...req.body, updatedAt: new Date().toISOString() };
+  data.tasks[idx] = updated;
+  writeKanban(data);
+  res.json(updated);
+});
+
+app.delete("/api/kanban/:id", (req, res) => {
+  const data = readKanban();
+  const prev = data.tasks.length;
+  data.tasks = data.tasks.filter(t => t.id !== req.params.id);
+  writeKanban(data);
+  res.json({ deleted: data.tasks.length < prev });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// REPORTS
+// ═══════════════════════════════════════════════════════════════════════════════
+const AGENT_REPORTS = [
+  { agent: "Scout", emoji: "🔭", file: "agents/scout/scout-report-latest.md"  },
+  { agent: "Dusty", emoji: "🌾", file: "agents/dusty/dusty-report-latest.md"  },
+  { agent: "Dale",  emoji: "📈", file: "agents/dale/dale-report-latest.md"    },
+  { agent: "Cash",  emoji: "💰", file: "agents/cash/cash-report-latest.md"    },
+  { agent: "Rex",   emoji: "🔐", file: "agents/rex/rex-report-latest.md"      },
+  { agent: "Karen", emoji: "📋", file: "agents/karen/karen-report-latest.md"  },
+  { agent: "Hugh",  emoji: "🤖", file: "agents/hugh/hugh-report-latest.md"    },
+];
+
+app.get("/api/reports", (_req, res) => {
+  const results = AGENT_REPORTS.map(({ agent, emoji, file }) => {
+    const full = path.join(WORKSPACE, file);
+    if (!fs.existsSync(full)) return { agent, emoji, content: "", mtime: null, exists: false };
+    const stat    = fs.statSync(full);
+    const content = fs.readFileSync(full, "utf8");
+    return { agent, emoji, content, mtime: stat.mtime.toISOString(), exists: true };
+  });
+  res.json(results);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FILE BROWSER
+// ═══════════════════════════════════════════════════════════════════════════════
+const SKIP_NAMES = new Set(["node_modules", ".git"]);
+const MAX_DEPTH  = 4;
+const MAX_FILE_BYTES = 50 * 1024; // 50 KB
+
+interface FileNode {
+  name:      string;
+  path:      string;
+  type:      "file" | "dir";
+  size?:     number;
+  mtime?:    string;
+  children?: FileNode[];
+}
+
+function buildTree(dir: string, rel: string, depth: number): FileNode[] {
+  if (depth > MAX_DEPTH) return [];
+  let entries: fs.Dirent[];
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
+  catch { return []; }
+
+  const nodes: FileNode[] = [];
+  for (const e of entries) {
+    if (e.name.startsWith(".") || SKIP_NAMES.has(e.name)) continue;
+    const fullPath = path.join(dir, e.name);
+    const relPath  = rel ? `${rel}/${e.name}` : e.name;
+
+    if (e.isDirectory()) {
+      nodes.push({
+        name:     e.name,
+        path:     relPath,
+        type:     "dir",
+        children: buildTree(fullPath, relPath, depth + 1),
+      });
+    } else if (e.isFile()) {
+      let stat: fs.Stats | undefined;
+      try { stat = fs.statSync(fullPath); } catch { /* skip */ }
+      nodes.push({
+        name:  e.name,
+        path:  relPath,
+        type:  "file",
+        size:  stat?.size,
+        mtime: stat?.mtime.toISOString(),
+      });
+    }
+  }
+  return nodes.sort((a, b) => {
+    if (a.type !== b.type) return a.type === "dir" ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+app.get("/api/files/tree", (_req, res) => {
+  const tree = buildTree(WORKSPACE, "", 0);
+  res.json({ tree });
+});
+
+app.get("/api/files/content", (req, res) => {
+  const rel = (req.query.path as string) ?? "";
+  // Security: reject traversal
+  if (!rel || rel.includes("..") || path.isAbsolute(rel)) {
+    res.status(400).json({ error: "Invalid path" });
+    return;
+  }
+  const full = path.resolve(path.join(WORKSPACE, rel));
+  if (!full.startsWith(WORKSPACE)) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  if (!fs.existsSync(full)) { res.status(404).json({ error: "Not found" }); return; }
+
+  const stat = fs.statSync(full);
+  if (!stat.isFile())        { res.status(400).json({ error: "Not a file" }); return; }
+
+  const buf       = fs.readFileSync(full);
+  const truncated = buf.length > MAX_FILE_BYTES;
+  const content   = buf.slice(0, MAX_FILE_BYTES).toString("utf8");
+
+  res.json({ content, truncated, size: stat.size, mtime: stat.mtime.toISOString() });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// AUDIT
+// ═══════════════════════════════════════════════════════════════════════════════
+const AUDIT_LATEST  = path.join(WORKSPACE, "agents", "karen", "audit-latest.json");
+const AUDIT_HISTORY = path.join(WORKSPACE, "agents", "karen", "audit-history");
+
+app.get("/api/audit", (_req, res) => {
+  let latest = null;
+  if (fs.existsSync(AUDIT_LATEST)) {
+    try { latest = JSON.parse(fs.readFileSync(AUDIT_LATEST, "utf8")); } catch { /* ignore */ }
+  }
+
+  const history: Array<{ date: string; data: unknown }> = [];
+  if (fs.existsSync(AUDIT_HISTORY)) {
+    // Get YYYY-MM-DD.json files for last 7 days
+    for (let i = 0; i < 7; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().slice(0, 10);
+      const f = path.join(AUDIT_HISTORY, `${dateStr}.json`);
+      if (fs.existsSync(f)) {
+        try {
+          const data = JSON.parse(fs.readFileSync(f, "utf8"));
+          history.push({ date: dateStr, data });
+        } catch { /* skip bad files */ }
+      }
+    }
+  }
+
+  res.json({ latest, history });
+});
+
 const PORT = 4001;
 app.listen(PORT, () => {
   console.log(`[bb-dashboard server] API running on http://localhost:${PORT}`);
