@@ -139,8 +139,8 @@ function PixelDesk({ ox, oy, wide = false }: { ox: number; oy: number; wide?: bo
 
 // ─── Per-agent movement speeds (CSS transition duration in seconds) ───────────
 const agentSpeeds: Record<string, number> = {
-  fred: 3.2, scout: 2.1, dusty: 2.8, hugh: 3.5, teky: 1.8,
-  buzz: 2.3, mac: 3.0,   dale: 3.8,  rex:  2.5, karen: 3.2, cash: 2.6,
+  fred: 5.8, scout: 3.8, dusty: 5.0, hugh: 6.3, teky: 3.2,
+  buzz: 4.1, mac: 5.4,   dale: 6.8,  rex:  4.5, karen: 5.8, cash: 4.7,
 };
 
 // ─── Pixel character (absolutely positioned on the floor canvas) ───────────────
@@ -177,25 +177,25 @@ function PixelCharacter({ shirtColor, status, label, pos, speed }: {
         }}
       >
         {/* Head */}
-        <div style={{ width: 10, height: 10, backgroundColor: "#f5c5a3", border: "1px solid #c49a7a", position: "relative" }}>
-          <div style={{ position: "absolute", top: 3, left: 1,  width: 2, height: 2, backgroundColor: "#222" }} />
-          <div style={{ position: "absolute", top: 3, right: 1, width: 2, height: 2, backgroundColor: "#222" }} />
+        <div style={{ width: 20, height: 20, backgroundColor: "#f5c5a3", border: "1px solid #c49a7a", position: "relative" }}>
+          <div style={{ position: "absolute", top: 6, left: 2,  width: 4, height: 4, backgroundColor: "#222" }} />
+          <div style={{ position: "absolute", top: 6, right: 2, width: 4, height: 4, backgroundColor: "#222" }} />
         </div>
         {/* Body */}
-        <div style={{ width: 12, height: 8, backgroundColor: shirtColor, border: "1px solid rgba(0,0,0,0.35)" }} />
+        <div style={{ width: 24, height: 16, backgroundColor: shirtColor, border: "1px solid rgba(0,0,0,0.35)" }} />
         {/* Legs */}
-        <div style={{ display: "flex", gap: 1 }}>
-          <div className={isIdle ? "leg-left"  : ""} style={{ width: 4, height: 5, backgroundColor: "#374151", border: "1px solid #111" }} />
-          <div className={isIdle ? "leg-right" : ""} style={{ width: 4, height: 5, backgroundColor: "#374151", border: "1px solid #111" }} />
+        <div style={{ display: "flex", gap: 2 }}>
+          <div className={isIdle ? "leg-left"  : ""} style={{ width: 8, height: 10, backgroundColor: "#374151", border: "1px solid #111" }} />
+          <div className={isIdle ? "leg-right" : ""} style={{ width: 8, height: 10, backgroundColor: "#374151", border: "1px solid #111" }} />
         </div>
       </div>
       {/* Name tag — always upright (outside the flipped div) */}
       <div style={{
-        fontSize: 5,
+        fontSize: 10,
         color: "rgba(200,220,255,0.95)",
         fontFamily: "'Press Start 2P', monospace",
         whiteSpace: "nowrap",
-        marginTop: 2,
+        marginTop: 4,
         textShadow: "0 1px 3px #000, 0 0 8px rgba(0,0,0,0.9)",
         transform: pos.facingLeft ? "scaleX(-1)" : undefined,
       }}>
@@ -288,8 +288,8 @@ export default function OfficePage() {
     const timeouts: Record<string, ReturnType<typeof setTimeout>> = {};
 
     const scheduleNextMove = (agentId: AgentName) => {
-      // Random wait between 2.5s and 7s before next move
-      const delay = 2500 + Math.random() * 4500;
+      // Random wait between 5s and 13s before next move
+      const delay = 5000 + Math.random() * 8000;
       timeouts[agentId] = setTimeout(() => {
         const currentStatus = statusRef.current[agentId];
         if (currentStatus === "idle") {
