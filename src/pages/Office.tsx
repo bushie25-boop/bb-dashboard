@@ -65,7 +65,11 @@ const MOCK_STATUS: Record<AgentName, AgentStatus> = {
 async function fetchAgentStatus(): Promise<Record<AgentName, AgentStatus>> {
   try {
     const res = await fetch("/api/agent-status");
-    if (res.ok) return res.json();
+    if (res.ok) {
+      const data = await res.json();
+      // Handle both {statuses: {...}} and plain {...}
+      return data.statuses ?? data;
+    }
   } catch { /* fall through */ }
   return MOCK_STATUS;
 }
@@ -86,6 +90,7 @@ const OFFICE_CSS = `
 @keyframes leg-r { 0%,100%{transform:rotate(0deg)} 50%{transform:rotate(-20deg)} }
 .leg-left  { animation: leg-l 0.3s steps(2) infinite; transform-origin: top center; }
 .leg-right { animation: leg-r 0.3s steps(2) infinite; transform-origin: top center; }
+@keyframes livePulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(0.75)} }
 `;
 
 // ─── Status dot ───────────────────────────────────────────────────────────────
@@ -251,6 +256,8 @@ const labelBase: React.CSSProperties = {
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function OfficePage() {
   const [statuses, setStatuses] = useState<Record<AgentName, AgentStatus>>(MOCK_STATUS);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [liveError, setLiveError] = useState(false);
 
   // Character positions on the floor (absolute x,y + facing direction)
   const [positions, setPositions] = useState<Record<AgentName, CharPos>>(() => {
@@ -265,10 +272,14 @@ export default function OfficePage() {
   const statusRef = useRef(statuses);
   useEffect(() => { statusRef.current = statuses; }, [statuses]);
 
-  // Fetch agent statuses
+  // Fetch agent statuses — poll every 10s for live updates
   useEffect(() => {
-    fetchAgentStatus().then(setStatuses);
-    const id = setInterval(() => fetchAgentStatus().then(setStatuses), 30_000);
+    const refresh = () =>
+      fetchAgentStatus()
+        .then(s => { setStatuses(s); setLastUpdated(new Date()); setLiveError(false); })
+        .catch(() => setLiveError(true));
+    refresh();
+    const id = setInterval(refresh, 10_000);
     return () => clearInterval(id);
   }, []);
 
@@ -338,9 +349,21 @@ export default function OfficePage() {
         <h1 style={{ fontSize: 12, fontFamily: "'Press Start 2P', monospace", color: "#7dd3fc", letterSpacing: "0.12em", textShadow: "0 0 10px rgba(125,211,252,0.6)", margin: 0 }}>
           🏢 B&amp;B Agrisales — AI Team HQ
         </h1>
-        <p style={{ fontSize: 9, color: "rgba(150,170,220,0.6)", marginTop: 6, fontFamily: "monospace" }}>
-          Fountain City, WI • Live Agent Dashboard
-        </p>
+        <div style={{ marginTop: 6, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+          <p style={{ fontSize: 9, color: "rgba(150,170,220,0.6)", margin: 0, fontFamily: "monospace" }}>
+            Fountain City, WI
+          </p>
+          {/* Live pulse dot */}
+          <div style={{
+            width: 7, height: 7, borderRadius: "50%",
+            backgroundColor: liveError ? "#ef4444" : "#22c55e",
+            boxShadow: liveError ? "0 0 6px #ef4444" : "0 0 6px #22c55e",
+            animation: liveError ? "none" : "livePulse 2s ease-in-out infinite",
+          }} />
+          <p style={{ fontSize: 9, color: liveError ? "rgba(239,68,68,0.7)" : "rgba(34,197,94,0.7)", margin: 0, fontFamily: "monospace" }}>
+            {liveError ? "DISCONNECTED" : lastUpdated ? `LIVE · ${lastUpdated.toLocaleTimeString()}` : "connecting…"}
+          </p>
+        </div>
       </div>
 
       {/* ── Office Floor Canvas ────────────────────────────────────────────── */}

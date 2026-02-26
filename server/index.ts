@@ -14,24 +14,38 @@ const CRON_DIR = path.join(HOME, ".openclaw", "cron");
 const JOBS_FILE = path.join(CRON_DIR, "jobs.json");
 const RUNS_DIR = path.join(CRON_DIR, "runs");
 
-// "main" agentId = Fred
+type AgentStatus = "working" | "idle" | "offline";
+
+// Map agentId → dashboard agent name
 const AGENT_ID_MAP: Record<string, string> = {
-  main: "fred",
+  main:  "fred",
+  scout: "scout",
+  dusty: "dusty",
+  coder: "teky",
+  buzz:  "buzz",
+  hugh:  "hugh",
+  mac:   "mac",
+  rex:   "rex",
+  dale:  "dale",
+  karen: "karen",
+  cash:  "cash",
 };
 
-type AgentStatus = "working" | "idle" | "offline";
+// All known dashboard agents
+const ALL_AGENTS = ["fred","scout","dusty","teky","buzz","hugh","mac","rex","dale","karen","cash"];
 
 // ─── GET /api/agent-status ────────────────────────────────────────────────────
 app.get("/api/agent-status", (_req, res) => {
-  const WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+  const WORKING_MS = 15 * 60 * 1000;  // ran within 15 min  → working
+  const IDLE_MS    = 12 * 60 * 60 * 1000; // ran within 12 h → idle
   const now = Date.now();
 
-  // All known agents — default offline
-  const statuses: Record<string, AgentStatus> = {
-    fred: "offline", scout: "offline", dusty: "offline", hugh: "offline",
-    teky: "offline", buzz: "offline", mac: "offline",   dale: "offline",
-    rex: "offline",  karen: "offline", cash: "offline",
-  };
+  // Start everyone offline
+  const statuses: Record<string, AgentStatus> = {};
+  for (const a of ALL_AGENTS) statuses[a] = "offline";
+
+  // Track best (most recent) run per agent
+  const bestAge: Record<string, number> = {};
 
   try {
     const jobsRaw = fs.readFileSync(JOBS_FILE, "utf8");
@@ -39,16 +53,14 @@ app.get("/api/agent-status", (_req, res) => {
       jobs: Array<{ id: string; agentId: string; enabled: boolean }>;
     };
 
-    // Build map: jobId → agentName
     for (const job of jobs) {
       if (!job.enabled) continue;
-      const agentName = AGENT_ID_MAP[job.agentId] ?? job.agentId;
-      if (!(agentName in statuses)) continue;
+      const agentName = AGENT_ID_MAP[job.agentId];
+      if (!agentName) continue;
 
       const runsFile = path.join(RUNS_DIR, `${job.id}.jsonl`);
       if (!fs.existsSync(runsFile)) continue;
 
-      // Read last line of the JSONL file efficiently
       const content = fs.readFileSync(runsFile, "utf8").trim();
       const lines = content.split("\n").filter(Boolean);
       if (lines.length === 0) continue;
@@ -56,25 +68,23 @@ app.get("/api/agent-status", (_req, res) => {
       try {
         const lastRun = JSON.parse(lines[lines.length - 1]);
         const age = now - (lastRun.ts ?? 0);
-
-        if (age < WINDOW_MS) {
-          // Ran within 10 min → working
-          statuses[agentName] = "working";
-        } else {
-          // Has run before but not recently → idle
-          if (statuses[agentName] === "offline") {
-            statuses[agentName] = "idle";
-          }
+        if (!(agentName in bestAge) || age < bestAge[agentName]) {
+          bestAge[agentName] = age;
         }
-      } catch (_) {
-        // bad JSON line — skip
-      }
+      } catch { /* bad line */ }
     }
   } catch (err) {
-    console.error("[agent-status] error reading cron data:", err);
+    console.error("[agent-status] error:", err);
   }
 
-  res.json(statuses);
+  // Convert age → status
+  for (const [agent, age] of Object.entries(bestAge)) {
+    if (age < WORKING_MS)  statuses[agent] = "working";
+    else if (age < IDLE_MS) statuses[agent] = "idle";
+    else                   statuses[agent] = "offline";
+  }
+
+  res.json({ statuses, ts: now });
 });
 
 // ─── GET /api/system ──────────────────────────────────────────────────────────
@@ -91,7 +101,6 @@ app.get("/api/system", (_req, res) => {
 
   try {
     const out = execSync("openclaw gateway status 2>&1", { timeout: 5000 }).toString().trim();
-    // Interpret the output: look for "running" keyword
     info.gateway = out.toLowerCase().includes("running") ? "running" : out.split("\n")[0] ?? "unknown";
     info.gatewayRaw = out;
   } catch (err: unknown) {
@@ -102,16 +111,13 @@ app.get("/api/system", (_req, res) => {
   res.json(info);
 });
 
-// ─── Health check ─────────────────────────────────────────────────────────────
-app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, ts: Date.now() });
-});
+app.get("/api/health", (_req, res) => res.json({ ok: true, ts: Date.now() }));
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // KANBAN
 // ═══════════════════════════════════════════════════════════════════════════════
-const WORKSPACE    = path.join(HOME, ".openclaw", "workspace");
-const KANBAN_FILE  = path.join(WORKSPACE, "kanban.json");
+const WORKSPACE   = path.join(HOME, ".openclaw", "workspace");
+const KANBAN_FILE = path.join(WORKSPACE, "kanban.json");
 
 interface KanbanTask {
   id:          string;
@@ -132,9 +138,7 @@ function readKanban(): { tasks: KanbanTask[] } {
       return empty;
     }
     return JSON.parse(fs.readFileSync(KANBAN_FILE, "utf8"));
-  } catch {
-    return { tasks: [] };
-  }
+  } catch { return { tasks: [] }; }
 }
 
 function writeKanban(data: { tasks: KanbanTask[] }) {
@@ -145,9 +149,7 @@ function genId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
-app.get("/api/kanban", (_req, res) => {
-  res.json(readKanban());
-});
+app.get("/api/kanban", (_req, res) => res.json(readKanban()));
 
 app.post("/api/kanban", (req, res) => {
   const data = readKanban();
@@ -168,8 +170,8 @@ app.post("/api/kanban", (req, res) => {
 });
 
 app.patch("/api/kanban/:id", (req, res) => {
-  const data  = readKanban();
-  const idx   = data.tasks.findIndex(t => t.id === req.params.id);
+  const data = readKanban();
+  const idx  = data.tasks.findIndex(t => t.id === req.params.id);
   if (idx === -1) { res.status(404).json({ error: "Not found" }); return; }
   const updated = { ...data.tasks[idx], ...req.body, updatedAt: new Date().toISOString() };
   data.tasks[idx] = updated;
@@ -214,15 +216,11 @@ app.get("/api/reports", (_req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 const SKIP_NAMES = new Set(["node_modules", ".git"]);
 const MAX_DEPTH  = 4;
-const MAX_FILE_BYTES = 50 * 1024; // 50 KB
+const MAX_FILE_BYTES = 50 * 1024;
 
 interface FileNode {
-  name:      string;
-  path:      string;
-  type:      "file" | "dir";
-  size?:     number;
-  mtime?:    string;
-  children?: FileNode[];
+  name: string; path: string; type: "file" | "dir";
+  size?: number; mtime?: string; children?: FileNode[];
 }
 
 function buildTree(dir: string, rel: string, depth: number): FileNode[] {
@@ -236,24 +234,12 @@ function buildTree(dir: string, rel: string, depth: number): FileNode[] {
     if (e.name.startsWith(".") || SKIP_NAMES.has(e.name)) continue;
     const fullPath = path.join(dir, e.name);
     const relPath  = rel ? `${rel}/${e.name}` : e.name;
-
     if (e.isDirectory()) {
-      nodes.push({
-        name:     e.name,
-        path:     relPath,
-        type:     "dir",
-        children: buildTree(fullPath, relPath, depth + 1),
-      });
+      nodes.push({ name: e.name, path: relPath, type: "dir", children: buildTree(fullPath, relPath, depth + 1) });
     } else if (e.isFile()) {
       let stat: fs.Stats | undefined;
       try { stat = fs.statSync(fullPath); } catch { /* skip */ }
-      nodes.push({
-        name:  e.name,
-        path:  relPath,
-        type:  "file",
-        size:  stat?.size,
-        mtime: stat?.mtime.toISOString(),
-      });
+      nodes.push({ name: e.name, path: relPath, type: "file", size: stat?.size, mtime: stat?.mtime.toISOString() });
     }
   }
   return nodes.sort((a, b) => {
@@ -262,32 +248,21 @@ function buildTree(dir: string, rel: string, depth: number): FileNode[] {
   });
 }
 
-app.get("/api/files/tree", (_req, res) => {
-  const tree = buildTree(WORKSPACE, "", 0);
-  res.json({ tree });
-});
+app.get("/api/files/tree", (_req, res) => res.json({ tree: buildTree(WORKSPACE, "", 0) }));
 
 app.get("/api/files/content", (req, res) => {
   const rel = (req.query.path as string) ?? "";
-  // Security: reject traversal
   if (!rel || rel.includes("..") || path.isAbsolute(rel)) {
-    res.status(400).json({ error: "Invalid path" });
-    return;
+    res.status(400).json({ error: "Invalid path" }); return;
   }
   const full = path.resolve(path.join(WORKSPACE, rel));
-  if (!full.startsWith(WORKSPACE)) {
-    res.status(403).json({ error: "Forbidden" });
-    return;
-  }
+  if (!full.startsWith(WORKSPACE)) { res.status(403).json({ error: "Forbidden" }); return; }
   if (!fs.existsSync(full)) { res.status(404).json({ error: "Not found" }); return; }
-
   const stat = fs.statSync(full);
-  if (!stat.isFile())        { res.status(400).json({ error: "Not a file" }); return; }
-
+  if (!stat.isFile()) { res.status(400).json({ error: "Not a file" }); return; }
   const buf       = fs.readFileSync(full);
   const truncated = buf.length > MAX_FILE_BYTES;
   const content   = buf.slice(0, MAX_FILE_BYTES).toString("utf8");
-
   res.json({ content, truncated, size: stat.size, mtime: stat.mtime.toISOString() });
 });
 
@@ -302,24 +277,17 @@ app.get("/api/audit", (_req, res) => {
   if (fs.existsSync(AUDIT_LATEST)) {
     try { latest = JSON.parse(fs.readFileSync(AUDIT_LATEST, "utf8")); } catch { /* ignore */ }
   }
-
   const history: Array<{ date: string; data: unknown }> = [];
   if (fs.existsSync(AUDIT_HISTORY)) {
-    // Get YYYY-MM-DD.json files for last 7 days
     for (let i = 0; i < 7; i++) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
+      const d = new Date(); d.setDate(d.getDate() - i);
       const dateStr = d.toISOString().slice(0, 10);
       const f = path.join(AUDIT_HISTORY, `${dateStr}.json`);
       if (fs.existsSync(f)) {
-        try {
-          const data = JSON.parse(fs.readFileSync(f, "utf8"));
-          history.push({ date: dateStr, data });
-        } catch { /* skip bad files */ }
+        try { history.push({ date: dateStr, data: JSON.parse(fs.readFileSync(f, "utf8")) }); } catch { /* skip */ }
       }
     }
   }
-
   res.json({ latest, history });
 });
 
